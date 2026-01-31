@@ -607,11 +607,28 @@
   }
 
   function setIframeSrcdocReliable(iframe, srcdoc){
-    const blank = `<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>`;
-    iframe.srcdoc = blank;
-    requestAnimationFrame(() => {
-      iframe.srcdoc = srcdoc;
-    });
+    // Chromium can "optimise away" repeated srcdoc writes, especially on sandboxed iframes.
+    // Force a real reload via about:blank + unique token.
+    const token = `<!--${Date.now()}-${Math.random().toString(16).slice(2)}-->`;
+    const docWithToken = token + srcdoc;
+
+    // Hard reset
+    iframe.removeAttribute("srcdoc");
+
+    // Set about:blank and wait for it to load, then set srcdoc.
+    iframe.src = "about:blank";
+
+    const apply = () => {
+      iframe.onload = null;
+      iframe.srcdoc = docWithToken;
+    };
+
+    // Use onload when possible, fallback to a timed tick if onload doesn't fire
+    iframe.onload = apply;
+    setTimeout(() => {
+      // If onload didn't fire quickly (some Chromium cases), still apply.
+      if (iframe.srcdoc !== docWithToken) apply();
+    }, 50);
   }
 
   function setTab(which){
@@ -628,7 +645,7 @@
     if (which === "render") {
       ensureRenderedLoaded();
     } else {
-      iframeRender.srcdoc = buildIframeDoc("", true);
+      setIframeSrcdocReliable(iframeRender, buildIframeDoc("", true));
       state.renderLoaded = false;
     }
   }
