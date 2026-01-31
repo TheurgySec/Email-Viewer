@@ -1,0 +1,1472 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Email Viewer (.msg / .eml)</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#101826; --text:#e6edf3; --muted:#9db0c2;
+      --line:#223043; --accent:#7aa2ff; --warn:#ffcc66; --good:#71dd8a; --bad:#ff6b6b;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      --radius:14px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#06080c,#0b0f14 35%);color:var(--text);font-family:var(--sans)}
+    .wrap{max-width:1500px;margin:12px auto;padding:0 10px 20px}
+    h1{font-size:18px;font-weight:650;margin:0 0 12px;letter-spacing:.2px}
+
+    .grid{display:grid;grid-template-columns: 480px 1fr;gap:12px}
+    @media (max-width: 1080px){ .grid{grid-template-columns:1fr} }
+
+    .card{background:rgba(16,24,38,.86);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .card .hd{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .card .hd .title{font-weight:650;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em}
+    .card .bd{padding:12px 14px}
+
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .btn{
+      appearance:none;border:1px solid var(--line);background:rgba(255,255,255,.03);
+      color:var(--text);padding:8px 10px;border-radius:12px;font-size:12px;cursor:pointer
+    }
+    .btn:hover{border-color:#345070}
+    .btn.primary{border-color:rgba(122,162,255,.55);background:rgba(122,162,255,.12)}
+    .btn.danger{border-color:rgba(255,107,107,.55);background:rgba(255,107,107,.10)}
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .pill{
+      display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;
+      border:1px solid var(--line);color:var(--muted);font-size:12px
+    }
+    .drop{
+      border:1px dashed rgba(122,162,255,.45);background:rgba(122,162,255,.06);
+      border-radius:16px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:12px
+    }
+    .drop.dragover{border-color:rgba(122,162,255,.85);background:rgba(122,162,255,.10)}
+    .drop .left{display:flex;flex-direction:column;gap:4px}
+    .drop .big{font-weight:650;font-size:13px}
+    .drop .sm{font-size:12px;color:var(--muted)}
+    input[type="file"]{display:none}
+    .kv{display:grid;grid-template-columns: 92px 1fr;gap:8px 10px;align-items:start}
+    .k{color:var(--muted);font-size:12px}
+    .v{font-size:12px;line-height:1.45;word-break:break-word}
+    .small{font-size:12px;color:var(--muted)}
+    .sep{height:1px;background:var(--line);margin:12px 0}
+
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{padding:7px 10px;border-radius:12px;border:1px solid var(--line);font-size:12px;cursor:pointer;background:rgba(255,255,255,.03)}
+    .tab.active{border-color:rgba(122,162,255,.55);background:rgba(122,162,255,.12)}
+
+    iframe{width:100%;border:1px solid var(--line);border-radius:12px;min-height:520px;background:white}
+    pre{
+      margin:0;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:12px;
+      padding:10px;overflow:auto;max-height:520px;font-family:var(--mono);font-size:12px;line-height:1.45;
+      max-width:100%;
+      white-space:pre-wrap;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+    }
+
+    details{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.02);overflow:hidden}
+    details > summary{cursor:pointer;list-style:none;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    details > summary::-webkit-details-marker{display:none}
+    .suml{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;font-weight:650}
+    .sumr{font-size:12px;color:var(--muted)}
+    .det{padding:10px 12px;border-top:1px solid var(--line)}
+
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid rgba(255,255,255,.06);padding:8px 6px;text-align:left;font-size:12px;vertical-align:top}
+    th{color:var(--muted);font-weight:650}
+
+    code{font-family:var(--mono);font-size:12px}
+
+    .hl-k{color:#8bd5ff}
+    .hl-v{color:#e6edf3}
+    .hl-n{color:#ffd479}
+    mark{
+      background:transparent;
+      color:inherit;
+      text-decoration:underline;
+      text-decoration-thickness:2px;
+      text-decoration-color:rgba(255, 204, 102, .95);
+      padding:0;
+    }
+
+    .score{display:flex;gap:10px;flex-wrap:wrap}
+    .score .item{
+      flex:1 1 160px;border:1px solid var(--line);background:rgba(0,0,0,.18);
+      border-radius:12px;padding:10px
+    }
+    .score .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em;font-weight:650}
+    .score .val{margin-top:6px;font-size:12px;line-height:1.35}
+    .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03)}
+    .badge.good{border-color:rgba(113,221,138,.45);background:rgba(113,221,138,.08)}
+    .badge.bad{border-color:rgba(255,107,107,.45);background:rgba(255,107,107,.08)}
+    .badge.warn{border-color:rgba(255,204,102,.45);background:rgba(255,204,102,.08)}
+
+    /* New MSG Streams layout */
+    .streams-grid{display:grid;grid-template-columns: 1fr;gap:10px}
+    .streams-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .select{
+      width:100%;
+      background:rgba(255,255,255,.03);
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:8px 10px;
+      color:var(--text);
+      font-size:12px;
+      font-family:var(--sans);
+      outline:none;
+    }
+    .select:focus{border-color:rgba(122,162,255,.65)}
+    .stream-meta{
+      display:grid;
+      grid-template-columns: 92px 1fr;
+      gap:8px 10px;
+      align-items:start;
+      padding:10px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:rgba(0,0,0,.18);
+    }
+    .stream-meta .k{font-size:12px}
+    .stream-meta .v{font-size:12px}
+  </style>
+
+  <!-- Local-first, CDN-fallback loader for cfb -->
+  <script>
+  (function () {
+    function loadScript(src, onerror) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.defer = true;
+      if (onerror) s.onerror = onerror;
+      document.head.appendChild(s);
+    }
+
+    loadScript('./cfb.min.js', function () {
+      console.warn('Local cfb.min.js not found, loading CDN fallback…');
+      loadScript('https://cdn.jsdelivr.net/npm/cfb@1.2.2/cfb.min.js');
+    });
+  })();
+  </script>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Email Viewer (.msg / .eml)</h1>
+
+    <div class="grid">
+      <div class="card">
+        <div class="hd">
+          <div class="title">Load</div>
+          <span class="pill" id="statusPill">No file loaded</span>
+        </div>
+        <div class="bd">
+          <div class="drop" id="dropZone" tabindex="0" role="button" aria-label="Choose or drop a file">
+            <div class="left">
+              <div class="big">Choose or drop a .msg / .eml file</div>
+              <div class="sm">Drag & drop onto this box, or click to browse.</div>
+            </div>
+            <div class="row">
+              <button class="btn primary" id="chooseBtn" type="button">Choose file</button>
+              <button class="btn danger" id="clearBtn" type="button" disabled>Clear</button>
+            </div>
+          </div>
+          <input id="fileInput" type="file" accept=".msg,.eml,message/rfc822" />
+
+          <div class="sep"></div>
+
+          <div class="kv">
+            <div class="k">File</div><div class="v" id="fileName">—</div>
+            <div class="k">Type</div><div class="v" id="fileType">—</div>
+            <div class="k">Size</div><div class="v" id="fileSize">—</div>
+          </div>
+
+          <div class="sep"></div>
+
+          <div class="kv">
+            <div class="k">Subject</div><div class="v" id="subject">—</div>
+            <div class="k">From</div><div class="v" id="from">—</div>
+            <div class="k">To</div><div class="v" id="to">—</div>
+            <div class="k">Date</div><div class="v" id="date">—</div>
+          </div>
+
+          <div class="sep"></div>
+
+          <div class="title" style="margin:0 0 10px;color:var(--muted);font-size:13px;font-weight:650;text-transform:uppercase;letter-spacing:.12em">
+            Triage helpers
+          </div>
+          <div class="score">
+            <div class="item">
+              <div class="lbl">Sender domain vs URLs</div>
+              <div class="val" id="triageDomain">—</div>
+            </div>
+            <div class="item">
+              <div class="lbl">Suspicious URL patterns</div>
+              <div class="val" id="triageUrls">—</div>
+            </div>
+          </div>
+
+          <div class="sep"></div>
+
+          <details id="recipsDetails">
+            <summary>
+              <span class="suml">Recipients</span>
+              <span class="sumr" id="recipsSummary">—</span>
+            </summary>
+            <div class="det">
+              <div class="small" id="recipsNote">—</div>
+              <div style="margin-top:10px;overflow:auto">
+                <table>
+                  <thead><tr><th>Type</th><th>Name</th><th>Email</th></tr></thead>
+                  <tbody id="recipsTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+
+          <div class="sep"></div>
+
+          <details id="attachDetails">
+            <summary>
+              <span class="suml">Attachments</span>
+              <span class="sumr" id="attachSummary">Collapsed</span>
+            </summary>
+            <div class="det">
+              <div class="small" id="attachNote">—</div>
+              <div style="margin-top:10px;overflow:auto">
+                <table>
+                  <thead><tr><th>Filename</th><th>Size</th><th>Download</th></tr></thead>
+                  <tbody id="attachTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+
+          <div class="sep"></div>
+
+          <!-- UPDATED: MSG Streams now uses a dropdown + inline preview (no scrolling needed) -->
+          <details id="streamsDetails">
+            <summary>
+              <span class="suml">MSG Streams</span>
+              <span class="sumr" id="streamsSummary">Collapsed</span>
+            </summary>
+            <div class="det">
+              <div class="small" id="streamsNote">—</div>
+
+              <div class="streams-grid" style="margin-top:10px">
+                <div class="streams-controls">
+                  <select id="streamsSelect" class="select" aria-label="Select a stream">
+                    <option value="">(select a stream)</option>
+                  </select>
+                </div>
+
+                <div class="stream-meta" id="streamMeta" style="display:none">
+                  <div class="k">Stream</div><div class="v" id="smPath">—</div>
+                  <div class="k">Size</div><div class="v" id="smSize">—</div>
+                  <div class="k">Type</div><div class="v" id="smType">—</div>
+                  <div class="k">Meaning</div><div class="v" id="smMeaning">—</div>
+                </div>
+
+                <pre id="streamPreview">(no stream selected)</pre>
+              </div>
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="hd">
+          <div class="title">Body</div>
+          <div class="row"><span class="small" id="bodyHint">—</span></div>
+        </div>
+        <div class="bd">
+          <div class="tabs" style="margin-bottom:10px">
+            <div class="tab active" id="modeHtml">HTML</div>
+            <div class="tab" id="modeText">Text</div>
+          </div>
+
+          <div class="tabs" style="margin-bottom:10px">
+            <div class="tab active" data-view="safeRender" id="tabSafe">Safe (no network)</div>
+            <div class="tab" data-view="render" id="tabRender">Rendered (may load remote content)</div>
+            <div class="tab" data-view="source" id="tabSource">Source</div>
+          </div>
+
+          <div id="viewSafeRender">
+            <iframe id="iframeSafe" sandbox="allow-forms allow-popups" referrerpolicy="no-referrer"></iframe>
+          </div>
+
+          <div id="viewRender" style="display:none">
+            <iframe id="iframeRender" sandbox="allow-forms allow-popups" referrerpolicy="no-referrer"></iframe>
+          </div>
+
+          <div id="viewSource" style="display:none">
+            <pre id="bodySource">(no content)</pre>
+          </div>
+
+          <div class="sep"></div>
+
+          <details id="headersDetails">
+            <summary>
+              <span class="suml">Headers</span>
+              <span class="sumr" id="headersSummary">Collapsed</span>
+            </summary>
+            <div class="det">
+              <div class="row" style="margin-bottom:10px">
+                <input id="hdrSearch" type="text" placeholder="Search headers…"
+                  style="flex:1;min-width:220px;background:rgba(255,255,255,.03);border:1px solid var(--line);
+                         border-radius:12px;padding:8px 10px;color:var(--text);font-size:12px" />
+                <button class="btn" id="hdrClear" type="button">Clear</button>
+              </div>
+              <pre id="headersPre">(no headers)</pre>
+            </div>
+          </details>
+
+          <div class="sep"></div>
+
+          <details id="linksDetails">
+            <summary>
+              <span class="suml">Links / URLs</span>
+              <span class="sumr" id="linksSummary">Collapsed</span>
+            </summary>
+            <div class="det">
+              <div class="small">Extracted from headers + body. Not clickable.</div>
+              <pre id="linksPre">(none)</pre>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+
+  const statusPill = $("statusPill");
+  const chooseBtn = $("chooseBtn");
+  const clearBtn  = $("clearBtn");
+  const fileInput = $("fileInput");
+  const dropZone  = $("dropZone");
+
+  const fileNameEl = $("fileName");
+  const fileTypeEl = $("fileType");
+  const fileSizeEl = $("fileSize");
+
+  const subjectEl = $("subject");
+  const fromEl    = $("from");
+  const toEl      = $("to");
+  const dateEl    = $("date");
+
+  const bodyHint  = $("bodyHint");
+  const iframeSafe  = $("iframeSafe");
+  const iframeRender = $("iframeRender");
+  const bodySourcePre = $("bodySource");
+
+  const headersPre     = $("headersPre");
+  const hdrSearch = $("hdrSearch");
+  const hdrClear  = $("hdrClear");
+
+  const linksSummary = $("linksSummary");
+  const linksPre = $("linksPre");
+
+  const recipsSummary = $("recipsSummary");
+  const recipsNote    = $("recipsNote");
+  const recipsTable   = $("recipsTable");
+
+  const attachSummary = $("attachSummary");
+  const attachNote    = $("attachNote");
+  const attachTable   = $("attachTable");
+
+  const streamsSummary = $("streamsSummary");
+  const streamsNote    = $("streamsNote");
+  const streamPreview  = $("streamPreview");
+
+  const streamsSelect = $("streamsSelect");
+  const streamMeta = $("streamMeta");
+  const smPath = $("smPath");
+  const smSize = $("smSize");
+  const smType = $("smType");
+  const smMeaning = $("smMeaning");
+
+  const triageDomain = $("triageDomain");
+  const triageUrls   = $("triageUrls");
+
+  const tabSafe   = $("tabSafe");
+  const tabRender = $("tabRender");
+  const tabSource = $("tabSource");
+  const viewSafeRender = $("viewSafeRender");
+  const viewRender     = $("viewRender");
+  const viewSource     = $("viewSource");
+
+  const modeHtml = $("modeHtml");
+  const modeText = $("modeText");
+
+  $("headersDetails").open = false;
+  $("linksDetails").open = false;
+  $("recipsDetails").open = false;
+  $("attachDetails").open = false;
+  $("streamsDetails").open = false;
+
+  const state = {
+    file: null,
+    kind: null,
+    bodyMode: "html",
+    activeView: "safeRender",
+    renderLoaded: false,
+    lastSafeSrcdoc: "",
+    lastRenderSrcdoc: "",
+    msg: {
+      streams: new Map(),
+      headers: "",
+      subject: "",
+      from: "",
+      to: "",
+      date: "",
+      bodyText: "",
+      bodyHtml: "",
+      recipients: [],
+      attachments: []
+    },
+    eml: {
+      headersRaw: "",
+      subject: "",
+      from: "",
+      to: "",
+      date: "",
+      bodyText: "",
+      bodyHtml: "",
+      attachments: []
+    },
+    urls: []
+  };
+
+  const fmtBytes = (n) => {
+    if (!Number.isFinite(n)) return "—";
+    const units = ["B","KB","MB","GB"];
+    let i=0, v=n;
+    while (v>=1024 && i<units.length-1){ v/=1024; i++; }
+    const s = (i===0) ? String(v|0) : v.toFixed(v>=10 ? 1 : 2);
+    return `${s} ${units[i]}`;
+  };
+
+  const setStatus = (txt, kind="") => {
+    statusPill.textContent = txt;
+    statusPill.style.borderColor = kind==="ok" ? "rgba(113,221,138,.45)" :
+                                   kind==="bad"? "rgba(255,107,107,.45)" :
+                                   "var(--line)";
+    statusPill.style.background = kind==="ok" ? "rgba(113,221,138,.08)" :
+                                   kind==="bad"? "rgba(255,107,107,.08)" :
+                                   "rgba(255,255,255,.03)";
+  };
+
+  const u8 = (ab) => new Uint8Array(ab);
+
+  function escapeHtml(s){
+    return String(s)
+      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+      .replaceAll('"',"quot;").replaceAll("'","&#039;")
+      .replaceAll("quot;","&quot;");
+  }
+
+  function decodeWithBomOrUtf8(bytes){
+    if (!bytes || bytes.length===0) return { text:"", encoding:"" };
+    if (bytes.length>=3 && bytes[0]===0xEF && bytes[1]===0xBB && bytes[2]===0xBF)
+      return { text: new TextDecoder("utf-8").decode(bytes.slice(3)), encoding:"utf-8-bom" };
+    if (bytes.length>=2 && bytes[0]===0xFF && bytes[1]===0xFE)
+      return { text: new TextDecoder("utf-16le").decode(bytes.slice(2)), encoding:"utf-16le-bom" };
+    if (bytes.length>=2 && bytes[0]===0xFE && bytes[1]===0xFF)
+      return { text: new TextDecoder("utf-16be").decode(bytes.slice(2)), encoding:"utf-16be-bom" };
+
+    let zeros=0, checked=0;
+    for (let i=1;i<Math.min(bytes.length, 2000); i+=2){ checked++; if (bytes[i]===0) zeros++; }
+    if (checked && zeros/checked > 0.25){
+      try { return { text: new TextDecoder("utf-16le").decode(bytes), encoding:"utf-16le-heur" }; } catch {}
+    }
+    return { text: new TextDecoder("utf-8",{fatal:false}).decode(bytes), encoding:"utf-8" };
+  }
+
+  function extractMetaCharset(html){
+    const m1 = html.match(/<meta\s+[^>]*charset\s*=\s*["']?\s*([a-zA-Z0-9._-]+)\s*["']?[^>]*>/i);
+    if (m1) return m1[1].toLowerCase();
+    const m2 = html.match(/<meta\s+[^>]*http-equiv\s*=\s*["']content-type["'][^>]*content\s*=\s*["'][^"']*charset\s*=\s*([a-zA-Z0-9._-]+)[^"']*["'][^>]*>/i);
+    if (m2) return m2[1].toLowerCase();
+    return "";
+  }
+
+  function decodeHtmlBytes(bytes){
+    if (!bytes || bytes.length===0) return { html:"", note:"" };
+    let d = decodeWithBomOrUtf8(bytes);
+    let html = d.text;
+
+    const meta = extractMetaCharset(html);
+    if (meta && !/^utf-?8$/i.test(meta)){
+      try { html = new TextDecoder(meta).decode(bytes); } catch {}
+    }
+    if (!/<[a-z][\s>]/i.test(html) || html.trim().length < 40) {
+      return { html:"", note:"html: absent/unusable" };
+    }
+    return { html, note:`html: decoded (${d.encoding}${meta?`, meta:${meta}`:""})` };
+  }
+
+  function isRemoteUrl(url){
+    const u = String(url||"").trim();
+    if (!u) return false;
+    if (u.startsWith("#") || u.startsWith("data:") || u.startsWith("blob:") || u.startsWith("cid:")) return false;
+    try{
+      const parsed = new URL(u, "http://example.invalid");
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") return true;
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  function sanitiseHtmlDom(inputHtml, allowNetwork){
+    const html = String(inputHtml || "");
+    const doc = document.implementation.createHTMLDocument("x");
+    doc.documentElement.innerHTML = html;
+
+    doc.querySelectorAll("script").forEach(n => n.remove());
+    doc.querySelectorAll('meta[http-equiv]').forEach(m => {
+      const v = (m.getAttribute("http-equiv") || "").toLowerCase().trim();
+      if (v === "refresh") m.remove();
+    });
+
+    doc.querySelectorAll("a[href]").forEach(a => {
+      const href = a.getAttribute("href") || "";
+      a.setAttribute("data-href", href);
+      a.setAttribute("href", "#");
+      a.removeAttribute("target");
+      a.removeAttribute("rel");
+    });
+
+    const urlAttrs = ["src","href","poster","background","data","codebase"];
+    const styleUrlRe = /url\s*\(\s*(['"]?)(.*?)\1\s*\)/ig;
+
+    if (!allowNetwork){
+      doc.querySelectorAll("iframe,object,embed").forEach(n => n.remove());
+
+      doc.querySelectorAll("link[rel]").forEach(l => {
+        const rel = (l.getAttribute("rel") || "").toLowerCase();
+        if (rel.includes("stylesheet") || rel.includes("preload") || rel.includes("prefetch")) l.remove();
+      });
+
+      doc.querySelectorAll("*").forEach(el => {
+        if (el.hasAttribute("srcset")){
+          const v = el.getAttribute("srcset") || "";
+          el.setAttribute("data-disabled-srcset", v);
+          el.removeAttribute("srcset");
+        }
+
+        for (const a of urlAttrs){
+          if (!el.hasAttribute(a)) continue;
+          const v = el.getAttribute(a) || "";
+          if (isRemoteUrl(v)){
+            el.setAttribute("data-disabled-" + a, v);
+            el.removeAttribute(a);
+          }
+        }
+
+        if (el.hasAttribute("style")){
+          const st = el.getAttribute("style") || "";
+          styleUrlRe.lastIndex = 0;
+          if (styleUrlRe.test(st)){
+            el.setAttribute("data-disabled-style", st);
+            el.removeAttribute("style");
+          }
+        }
+      });
+    }
+
+    return doc.documentElement.outerHTML;
+  }
+
+  function buildIframeDoc(innerHtml, allowNetwork){
+    const clean = sanitiseHtmlDom(innerHtml || "", allowNetwork);
+
+    const csp = allowNetwork
+      ? `default-src 'none'; img-src https: http: data: blob:; style-src https: http: 'unsafe-inline'; font-src https: http: data:; media-src https: http: data: blob:;`
+      : `default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; media-src data: blob:;`;
+
+    return `<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<meta name="referrer" content="no-referrer">
+<style>
+  body{margin:0;padding:14px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#111;background:#fff}
+  img{max-width:100%;height:auto}
+  pre,code{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere}
+  a{color:#1560ff;text-decoration:underline}
+  [data-disabled-src],[data-disabled-href],[data-disabled-style],[data-disabled-srcset],[data-disabled-poster],[data-disabled-background],[data-disabled-data],[data-disabled-codebase]{outline: 1px dashed rgba(200,0,0,.35);}
+</style>
+</head><body>${clean}</body></html>`;
+  }
+
+  function setIframeSrcdocReliable(iframe, srcdoc){
+    const blank = `<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>`;
+    iframe.srcdoc = blank;
+    requestAnimationFrame(() => {
+      iframe.srcdoc = srcdoc;
+    });
+  }
+
+  function setTab(which){
+    state.activeView = which;
+    [tabSafe, tabRender, tabSource].forEach(t=>t.classList.remove("active"));
+    viewSafeRender.style.display = "none";
+    viewRender.style.display = "none";
+    viewSource.style.display = "none";
+
+    if (which==="safeRender"){ tabSafe.classList.add("active"); viewSafeRender.style.display="block"; }
+    if (which==="render"){ tabRender.classList.add("active"); viewRender.style.display="block"; }
+    if (which==="source"){ tabSource.classList.add("active"); viewSource.style.display="block"; }
+
+    if (which === "render") {
+      ensureRenderedLoaded();
+    } else {
+      iframeRender.srcdoc = buildIframeDoc("", true);
+      state.renderLoaded = false;
+    }
+  }
+
+  function getBodyAvailability(){
+    const hasHtml = state.kind==="msg" ? !!(state.msg.bodyHtml && state.msg.bodyHtml.trim())
+                 : state.kind==="eml" ? !!(state.eml.bodyHtml && state.eml.bodyHtml.trim())
+                 : false;
+    const hasText = state.kind==="msg" ? !!(state.msg.bodyText && state.msg.bodyText.trim())
+                 : state.kind==="eml" ? !!(state.eml.bodyText && state.eml.bodyText.trim())
+                 : false;
+    return { hasHtml, hasText };
+  }
+
+  function autoSelectBodyMode(){
+    const { hasHtml, hasText } = getBodyAvailability();
+    if (hasHtml) state.bodyMode = "html";
+    else if (hasText) state.bodyMode = "text";
+    else state.bodyMode = "html";
+
+    if (state.bodyMode==="html"){
+      modeHtml.classList.add("active"); modeText.classList.remove("active");
+    } else {
+      modeText.classList.add("active"); modeHtml.classList.remove("active");
+    }
+    modeHtml.style.opacity = hasHtml ? "1" : ".55";
+    modeText.style.opacity = hasText ? "1" : ".55";
+  }
+
+  function getBodyPayload(){
+    const want = state.bodyMode;
+
+    if (state.kind === "msg"){
+      if (want === "html"){
+        if (state.msg.bodyHtml) return { html: state.msg.bodyHtml, sourceText: state.msg.bodyHtml, hint: "Body: HTML (PR_HTML / 0x1013)" };
+        return { html: "<div>No HTML body found.</div>", sourceText: "", hint: "Body: HTML (missing)" };
+      } else {
+        if (state.msg.bodyText) return { html: `<pre>${escapeHtml(state.msg.bodyText)}</pre>`, sourceText: state.msg.bodyText, hint: "Body: Text (PR_BODY / 0x1000)" };
+        return { html: "<div>No text body found.</div>", sourceText: "", hint: "Body: Text (missing)" };
+      }
+    }
+
+    if (state.kind === "eml"){
+      if (want === "html"){
+        if (state.eml.bodyHtml) return { html: state.eml.bodyHtml, sourceText: state.eml.bodyHtml, hint: "Body: HTML (MIME)" };
+        return { html:"<div>No HTML body found.</div>", sourceText:"", hint:"Body: HTML (missing)" };
+      } else {
+        if (state.eml.bodyText) return { html: `<pre>${escapeHtml(state.eml.bodyText)}</pre>`, sourceText: state.eml.bodyText, hint: "Body: Text (MIME)" };
+        return { html:"<div>No text body found.</div>", sourceText:"", hint:"Body: Text (missing)" };
+      }
+    }
+    return { html:"", sourceText:"", hint:"—" };
+  }
+
+  function setBodyViews(){
+    const p = getBodyPayload();
+    bodyHint.textContent = p.hint || "—";
+    bodySourcePre.textContent = p.sourceText || "(no content)";
+
+    state.lastSafeSrcdoc = buildIframeDoc(p.html || "", false);
+    setIframeSrcdocReliable(iframeSafe, state.lastSafeSrcdoc);
+
+    state.lastRenderSrcdoc = buildIframeDoc(p.html || "", true);
+    if (state.activeView === "render") {
+      ensureRenderedLoaded(true);
+    }
+  }
+
+  function ensureRenderedLoaded(force=false){
+    if (!force && state.renderLoaded) return;
+    if (!state.lastRenderSrcdoc) return;
+    state.renderLoaded = true;
+    setIframeSrcdocReliable(iframeRender, state.lastRenderSrcdoc);
+  }
+
+  function renderHeadersSyntax(raw){
+    const lines = String(raw||"").replace(/\r/g,"").split("\n");
+    const out = [];
+    for (const line of lines){
+      if (!line.trim()){ out.push(""); continue; }
+      const idx = line.indexOf(":");
+      if (idx>0){
+        const k = escapeHtml(line.slice(0, idx));
+        const v = escapeHtml(line.slice(idx+1));
+        out.push(`<span class="hl-k">${k}</span><span class="hl-n">:</span><span class="hl-v">${v}</span>`);
+      } else out.push(escapeHtml(line));
+    }
+    return out.join("\n");
+  }
+
+  function applyHeaderSearch(){
+    const q = hdrSearch.value.trim();
+    const raw = state.kind==="eml" ? state.eml.headersRaw : state.msg.headers;
+    if (!raw){ headersPre.textContent = "(no headers)"; return; }
+    const html = renderHeadersSyntax(raw);
+    if (!q){ headersPre.innerHTML = html; return; }
+    const safeQ = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(safeQ, "gi");
+    headersPre.innerHTML = html.replace(re, (m)=>`<mark>${m}</mark>`);
+  }
+
+  function extractUrls(text){
+    const urls = new Set();
+    const s = text || "";
+    const re = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
+    let m;
+    while ((m=re.exec(s))) urls.add(m[0]);
+    return Array.from(urls);
+  }
+
+  function updateLinksPanel(urls){
+    const clean = Array.from(new Set((urls||[]).map(u=>String(u).trim()).filter(Boolean)));
+    state.urls = clean;
+    linksPre.textContent = clean.length ? clean.join("\n") : "(none)";
+    linksSummary.textContent = clean.length ? `${clean.length} found (collapsed)` : "None (collapsed)";
+  }
+
+  function hostOf(url){ try { return new URL(url).host.toLowerCase(); } catch { return ""; } }
+  function domainOfEmail(text){
+    const m = String(text||"").match(/@([a-z0-9.-]+\.[a-z]{2,})/i);
+    return m ? m[1].toLowerCase() : "";
+  }
+
+  function updateTriage(){
+    const senderDomain = domainOfEmail(fromEl.textContent || "");
+    const hosts = state.urls.map(hostOf).filter(Boolean);
+    const uniqueHosts = Array.from(new Set(hosts));
+    if (!senderDomain && uniqueHosts.length===0){
+      triageDomain.textContent = "—";
+    } else if (uniqueHosts.length===0){
+      triageDomain.innerHTML = `<span class="badge good">No URLs found</span>`;
+    } else if (!senderDomain){
+      triageDomain.innerHTML = `<span class="badge warn">No sender domain</span> URLs: <code>${escapeHtml(uniqueHosts.slice(0,4).join(", "))}${uniqueHosts.length>4?"…":""}</code>`;
+    } else {
+      const mismatches = uniqueHosts.filter(h => h!==senderDomain && !h.endsWith("."+senderDomain));
+      if (mismatches.length){
+        triageDomain.innerHTML = `<span class="badge bad">Mismatch</span> Sender: <code>${escapeHtml(senderDomain)}</code> • URLs: <code>${escapeHtml(mismatches.slice(0,4).join(", "))}${mismatches.length>4?"…":""}</code>`;
+      } else {
+        triageDomain.innerHTML = `<span class="badge good">Aligned</span> Sender matches URL domains`;
+      }
+    }
+
+    const flags = [];
+    for (const u of state.urls){
+      const low = u.toLowerCase();
+      if (/@/.test(u.replace(/^https?:\/\//i,""))) flags.push("contains @ in URL");
+      if (/https?:\/\/\d{1,3}(\.\d{1,3}){3}\b/.test(u)) flags.push("uses IP address");
+      if (/https?:\/\/[^\/]*--/.test(u)) flags.push("punycode-like (--)");
+      if (/\/(login|verify|secure|account|password|auth)\b/.test(low)) flags.push("login/verify path");
+    }
+    const uniq = Array.from(new Set(flags));
+    if (!state.urls.length) triageUrls.innerHTML = `<span class="badge good">None</span>`;
+    else if (!uniq.length) triageUrls.innerHTML = `<span class="badge good">No obvious patterns</span>`;
+    else triageUrls.innerHTML = `<span class="badge warn">Review</span> ${escapeHtml(uniq.join("; "))}`;
+  }
+
+  function downloadBytes(filename, bytes, mime){
+    const blob = new Blob([bytes], { type: mime || "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "attachment.bin";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  }
+
+  function parseEmlFull(rawText){
+    const norm = String(rawText||"");
+    const splitHeadersBody = (raw) => {
+      const n = raw.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+      const idx = n.indexOf("\n\n");
+      if (idx === -1) return { headersText: n, bodyText: "" };
+      return { headersText: n.slice(0, idx), bodyText: n.slice(idx+2) };
+    };
+    const parseHeadersToMap = (headersText) => {
+      const lines = String(headersText||"").split("\n");
+      const unfolded = [];
+      for (const line of lines){
+        if (/^[ \t]/.test(line) && unfolded.length) unfolded[unfolded.length-1] += "\n" + line;
+        else unfolded.push(line);
+      }
+      const map = new Map();
+      for (const ln of unfolded){
+        const i = ln.indexOf(":");
+        if (i<=0) continue;
+        const k = ln.slice(0,i).trim().toLowerCase();
+        const v = ln.slice(i+1).trim();
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(v);
+      }
+      return map;
+    };
+    const hdrFirst = (map, key) => {
+      const arr = map.get(String(key||"").toLowerCase());
+      return (arr && arr.length) ? arr[0] : "";
+    };
+    const parseContentType = (ct) => {
+      const raw = String(ct||"").trim();
+      const parts = raw.split(";").map(s=>s.trim()).filter(Boolean);
+      const mime = (parts[0] || "").toLowerCase();
+      const params = {};
+      for (let i=1;i<parts.length;i++){
+        const m = parts[i].match(/^([^=]+)=(.*)$/);
+        if (!m) continue;
+        const k = m[1].trim().toLowerCase();
+        let v = m[2].trim();
+        if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1,-1);
+        params[k]=v;
+      }
+      return { mime, params };
+    };
+    const decodeBase64ToU8 = (b64) => {
+      const clean = String(b64||"").replace(/\s/g,"");
+      const bin = atob(clean);
+      const out = new Uint8Array(bin.length);
+      for (let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+      return out;
+    };
+    const decodeQuotedPrintableToU8 = (s) => {
+      const n = String(s||"").replace(/\r\n/g,"\n").replace(/=\n/g,"");
+      const bytes = [];
+      for (let i=0;i<n.length;i++){
+        const ch = n[i];
+        if (ch==="=" && i+2<n.length && /[0-9A-Fa-f]{2}/.test(n.slice(i+1,i+3))){
+          bytes.push(parseInt(n.slice(i+1,i+3),16));
+          i+=2;
+        } else bytes.push(n.charCodeAt(i) & 0xFF);
+      }
+      return new Uint8Array(bytes);
+    };
+    const decodeTransfer = (encoding, bodyText) => {
+      const enc = String(encoding||"").toLowerCase().trim();
+      if (enc==="base64") return decodeBase64ToU8(bodyText);
+      if (enc==="quoted-printable") return decodeQuotedPrintableToU8(bodyText);
+      const s = String(bodyText||"");
+      const out = new Uint8Array(s.length);
+      for (let i=0;i<s.length;i++) out[i]=s.charCodeAt(i) & 0xFF;
+      return out;
+    };
+    const decodeBytesToText = (bytes, charset) => {
+      const cs = (String(charset||"utf-8").toLowerCase() || "utf-8");
+      try { return new TextDecoder(cs, { fatal:false }).decode(bytes); }
+      catch { return new TextDecoder("utf-8", { fatal:false }).decode(bytes); }
+    };
+    const splitMultipart = (bodyText, boundary) => {
+      const n = String(bodyText||"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+      const marker = "--" + boundary;
+      const end = marker + "--";
+      const lines = n.split("\n");
+      const parts = [];
+      let buf = [];
+      let inPart = false;
+      const push = () => {
+        const raw = buf.join("\n").trim();
+        if (raw) parts.push(raw);
+        buf = [];
+      };
+      for (const line of lines){
+        if (line === marker){ if (inPart) push(); inPart=true; continue; }
+        if (line === end){ if (inPart) push(); break; }
+        if (inPart) buf.push(line);
+      }
+      return parts;
+    };
+    const parseMimeEntity = (raw) => {
+      const { headersText, bodyText } = splitHeadersBody(raw);
+      const hdrs = parseHeadersToMap(headersText);
+      const ct = parseContentType(hdrFirst(hdrs, "content-type"));
+      const cte = hdrFirst(hdrs, "content-transfer-encoding");
+      const cd  = hdrFirst(hdrs, "content-disposition");
+      return { hdrs, ct, cte, cd, bodyText };
+    };
+    const parseDispositionFilename = (cd) => {
+      const s = String(cd||"");
+      let m = s.match(/filename\*=\s*([^']*)''([^;\n\r]+)/i);
+      if (m) return decodeURIComponent(m[2].trim().replace(/^"|"$/g,""));
+      m = s.match(/filename\s*=\s*("?)([^";\n\r]+)\1/i);
+      if (m) return m[2].trim();
+      return "";
+    };
+    const walkMime = (entity, out) => {
+      const mime = (entity.ct.mime || "").toLowerCase();
+      if (mime.startsWith("multipart/")){
+        const b = entity.ct.params.boundary;
+        if (!b) return;
+        const parts = splitMultipart(entity.bodyText, b);
+        for (const p of parts) walkMime(parseMimeEntity(p), out);
+        return;
+      }
+      const disp = (entity.cd || "").toLowerCase();
+      const filename = parseDispositionFilename(entity.cd) || (entity.ct.params.name || "");
+      const isAttachment = disp.includes("attachment") || !!filename;
+
+      const bytes = decodeTransfer(entity.cte, entity.bodyText);
+      const charset = entity.ct.params.charset || "utf-8";
+
+      if (isAttachment){
+        out.attachments.push({ filename: filename || "attachment.bin", mime: mime || "application/octet-stream", bytes });
+        return;
+      }
+      if (mime === "text/html"){
+        out.htmlParts.push(decodeBytesToText(bytes, charset));
+        return;
+      }
+      if (mime === "text/plain" || !mime){
+        out.textParts.push(decodeBytesToText(bytes, charset));
+        return;
+      }
+      if (mime.startsWith("image/") && !isAttachment){
+        out.attachments.push({ filename: filename || "inline-image", mime, bytes });
+      }
+    };
+
+    const top = parseMimeEntity(norm);
+    const headersRaw = splitHeadersBody(norm).headersText;
+    const headersMap = parseHeadersToMap(headersRaw);
+
+    const out = { htmlParts:[], textParts:[], attachments:[] };
+    walkMime(top, out);
+
+    const bodyHtml = out.htmlParts.find(x => x && x.trim()) || "";
+    const bodyText = out.textParts.find(x => x && x.trim()) || "";
+
+    return {
+      headersRaw,
+      subject: hdrFirst(headersMap,"subject"),
+      from: hdrFirst(headersMap,"from"),
+      to: hdrFirst(headersMap,"to"),
+      date: hdrFirst(headersMap,"date"),
+      bodyHtml, bodyText,
+      attachments: out.attachments
+    };
+  }
+
+  function normalisePath(p){
+    let s = String(p || "");
+    s = s.replace(/^\/+/, "");
+    s = s.replace(/^Root Entry\/?/i, "");
+    return s;
+  }
+
+  function readAllCfbStreams(cfbObj){
+    const map = new Map();
+    for (let i=0; i<cfbObj.FullPaths.length; i++){
+      const rawPath = cfbObj.FullPaths[i];
+      const ent = cfbObj.FileIndex[i];
+      if (!rawPath || rawPath === "Root Entry" || !ent) continue;
+      if (ent.type === 1) continue;
+      if (ent.content == null) continue;
+
+      const path = normalisePath(rawPath);
+      const bytes = (ent.content instanceof Uint8Array) ? ent.content : new Uint8Array(ent.content);
+      map.set(path, bytes);
+    }
+    return map;
+  }
+
+  function getStreamExact(name){ return state.msg.streams.get(name) || null; }
+
+  function getStreamBySuffix(suffix){
+    const suf = String(suffix||"");
+    for (const [k,v] of state.msg.streams.entries()){
+      if (k.endsWith(suf)) return v;
+    }
+    return null;
+  }
+
+  function getStreamSmart(pathOrName){
+    const p = normalisePath(pathOrName);
+    return getStreamExact(p) || getStreamBySuffix(p);
+  }
+
+  function getSubstg(tag4, type4){
+    const leaf = `__substg1.0_${tag4.toUpperCase()}${type4.toUpperCase()}`;
+    return getStreamSmart(leaf);
+  }
+
+  function decodeMsgString(bytes, typeHex){
+    if (!bytes) return "";
+    const t = String(typeHex||"").toUpperCase();
+    if (t==="001F"){
+      let arr = bytes;
+      if (arr.length>=2 && arr[arr.length-1]===0 && arr[arr.length-2]===0) arr = arr.slice(0,-2);
+      try { return new TextDecoder("utf-16le").decode(arr); } catch { return ""; }
+    }
+    if (t==="001E"){
+      try { return new TextDecoder("windows-1252").decode(bytes).replace(/\0+$/,""); } catch { return ""; }
+    }
+    return decodeWithBomOrUtf8(bytes).text.replace(/\0+$/,"");
+  }
+
+  function decodeMsgStringFromPath(path){
+    const bytes = getStreamSmart(path);
+    if (!bytes) return "";
+    const m = String(path||"").match(/__substg1\.0_[0-9A-Fa-f]{4}([0-9A-Fa-f]{4})/);
+    const t = m ? m[1].toUpperCase() : "";
+    if (t==="001F" || t==="001E") return decodeMsgString(bytes, t);
+    return decodeWithBomOrUtf8(bytes).text.replace(/\0+$/,"");
+  }
+
+  function parseMsg(){
+    state.msg.headers = decodeMsgString(getSubstg("007D","001F"), "001F") || "";
+    state.msg.subject = decodeMsgString(getSubstg("0037","001F"), "001F") || "";
+
+    const senderName  = decodeMsgString(getSubstg("0C1A","001F"), "001F");
+    const senderEmail = decodeMsgString(getSubstg("0C1F","001F"), "001F");
+    state.msg.from = (senderName || senderEmail) ? `${senderName}${senderName && senderEmail ? " " : ""}${senderEmail ? "<"+senderEmail+">" : ""}`.trim() : "";
+
+    state.msg.to = decodeMsgString(getSubstg("0E04","001F"), "001F") || "";
+    state.msg.date = decodeMsgString(getSubstg("0E06","001F"), "001F") ||
+                     decodeMsgString(getSubstg("0039","001F"), "001F") || "";
+
+    state.msg.bodyText = decodeMsgString(getSubstg("1000","001F"), "001F") || "";
+    const htmlBytes = getSubstg("1013","0102");
+    state.msg.bodyHtml = decodeHtmlBytes(htmlBytes).html || "";
+
+    if (!state.msg.bodyText && !state.msg.bodyHtml){
+      for (const k of state.msg.streams.keys()){
+        if (/__substg1\.0_10130102$/i.test(k)){
+          state.msg.bodyHtml = decodeHtmlBytes(state.msg.streams.get(k)).html || "";
+        }
+        if (/__substg1\.0_1000001F$/i.test(k)){
+          state.msg.bodyText = decodeMsgString(state.msg.streams.get(k),"001F") || "";
+        }
+      }
+    }
+
+    const recipStorages = new Set();
+    for (const k of state.msg.streams.keys()){
+      const m = k.match(/^(__recip_version1\.0_#[0-9A-Fa-f]{8})\//);
+      if (m) recipStorages.add(m[1]);
+    }
+    const recips = [];
+    for (const st of recipStorages){
+      const dn = decodeMsgString(getStreamSmart(`${st}/__substg1.0_3001001F`), "001F");
+      const em = decodeMsgString(getStreamSmart(`${st}/__substg1.0_3003001F`), "001F");
+      recips.push({ type: "", name: dn, email: em });
+    }
+    state.msg.recipients = recips;
+
+    const attachStorages = new Set();
+    for (const k of state.msg.streams.keys()){
+      const m = k.match(/^(__attach_version1\.0_#[0-9A-Fa-f]{8})\//);
+      if (m) attachStorages.add(m[1]);
+    }
+    const atts = [];
+    for (const st of attachStorages){
+      const longname = decodeMsgString(getStreamSmart(`${st}/__substg1.0_3707001F`), "001F");
+      const shortname = decodeMsgString(getStreamSmart(`${st}/__substg1.0_3704001F`), "001F");
+      const mime = decodeMsgString(getStreamSmart(`${st}/__substg1.0_370E001F`), "001F");
+      const data = getStreamSmart(`${st}/__substg1.0_37010102`);
+      const filename = (longname || shortname || "attachment.bin");
+      atts.push({ filename, size: data ? data.length : 0, mime, data });
+    }
+    state.msg.attachments = atts;
+  }
+
+  function renderRecipients(){
+    const recips = (state.kind==="msg") ? state.msg.recipients : [];
+    recipsTable.innerHTML = "";
+    if (!recips || !recips.length){
+      recipsSummary.textContent = "None (collapsed)";
+      recipsNote.textContent = "No recipients found.";
+      return;
+    }
+    recipsSummary.textContent = `${recips.length} found (collapsed)`;
+    recipsNote.textContent = `Found ${recips.length} recipient storage(s).`;
+    for (const r of recips){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${escapeHtml(r.type||"")}</td><td>${escapeHtml(r.name||"")}</td><td>${escapeHtml(r.email||"")}</td>`;
+      recipsTable.appendChild(tr);
+    }
+  }
+
+  function renderAttachments(){
+    const atts = (state.kind==="msg") ? state.msg.attachments : state.eml.attachments;
+    attachTable.innerHTML = "";
+    if (!atts || !atts.length){
+      attachSummary.textContent = "None (collapsed)";
+      attachNote.textContent = "No attachments found.";
+      return;
+    }
+    attachSummary.textContent = `${atts.length} found (collapsed)`;
+    attachNote.textContent = "Download any attachment (including inline images).";
+    for (const a of atts){
+      const tr = document.createElement("tr");
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.type = "button";
+      btn.textContent = "Download";
+      btn.disabled = !a.bytes && !a.data;
+      btn.addEventListener("click", () => {
+        const bytes = a.bytes || a.data;
+        if (!bytes) return;
+        downloadBytes(a.filename || "attachment.bin", bytes, a.mime || "application/octet-stream");
+      });
+      const tdBtn = document.createElement("td");
+      tdBtn.appendChild(btn);
+      tr.innerHTML = `<td>${escapeHtml(a.filename||"")}</td><td>${escapeHtml(fmtBytes((a.bytes||a.data||[]).length||0))}</td>`;
+      tr.appendChild(tdBtn);
+      attachTable.appendChild(tr);
+    }
+  }
+
+  function guessMsgStreamMeaning(path){
+    const p = String(path||"");
+
+    if (p === "__properties_version1.0") return "Message properties table";
+    if (p.startsWith("__nameid_version1.0/")) return "Named property mapping";
+    if (p.startsWith("__recip_version1.0_#")) return "Recipient storage";
+    if (p.startsWith("__attach_version1.0_#")) return "Attachment storage";
+
+    const m = p.match(/__substg1\.0_([0-9A-Fa-f]{4})([0-9A-Fa-f]{4})(?:-[0-9A-Fa-f]{8})?$/);
+    if (!m) return "";
+    const tag = m[1].toUpperCase();
+    const type = m[2].toUpperCase();
+
+    const tagMap = {
+      "0037":"Subject (PR_SUBJECT)",
+      "007D":"Transport headers (PR_TRANSPORT_MESSAGE_HEADERS)",
+      "0C1A":"Sender name (PR_SENDER_NAME)",
+      "0C1F":"Sender email (PR_SENDER_EMAIL_ADDRESS)",
+      "0E04":"To (PR_DISPLAY_TO)",
+      "0039":"Client submit time / date (varies)",
+      "0E06":"Sent/Received time (varies)",
+      "1000":"Body text (PR_BODY)",
+      "1013":"Body HTML (PR_HTML)",
+      "3001":"Display name (recipient/addrbook)",
+      "3003":"Email address (recipient/addrbook)",
+      "3701":"Attachment data (PR_ATTACH_DATA_BIN)",
+      "3704":"Attachment filename (short) (PR_ATTACH_FILENAME)",
+      "3707":"Attachment filename (long) (PR_ATTACH_LONG_FILENAME)",
+      "370E":"Attachment MIME tag (PR_ATTACH_MIME_TAG)"
+    };
+
+    const typeMap = {
+      "001F":"(string UTF-16LE)",
+      "001E":"(string ANSI)",
+      "0102":"(binary)",
+      "0040":"(FILETIME)",
+      "0003":"(int32)",
+      "000B":"(bool)",
+      "0048":"(GUID)"
+    };
+
+    const t = typeMap[type] || `(type 0x${type})`;
+    const meaning = tagMap[tag] ? `${tagMap[tag]} ${t}` : `Property 0x${tag} ${t}`;
+    return meaning;
+  }
+
+  function streamTypeFromName(path){
+    const m = String(path||"").match(/__substg1\.0_[0-9A-Fa-f]{4}([0-9A-Fa-f]{4})/);
+    if (!m) return "";
+    const t = m[1].toUpperCase();
+    const typeMap = {
+      "001F":"String (UTF-16LE)",
+      "001E":"String (ANSI)",
+      "0102":"Binary",
+      "0040":"FILETIME",
+      "0003":"Int32",
+      "000B":"Bool",
+      "0048":"GUID"
+    };
+    return typeMap[t] || `Type 0x${t}`;
+  }
+
+  function hexPreview(bytes, maxBytes=512){
+    const b = bytes || new Uint8Array();
+    const n = Math.min(b.length, maxBytes);
+    const lines = [];
+    for (let i=0; i<n; i+=16){
+      const chunk = b.slice(i, i+16);
+      const hex = Array.from(chunk).map(x => x.toString(16).padStart(2,"0")).join(" ");
+      const ascii = Array.from(chunk).map(x => (x>=32 && x<=126) ? String.fromCharCode(x) : ".").join("");
+      lines.push(`${i.toString(16).padStart(8,"0")}: ${hex.padEnd(16*3-1," ")}  ${ascii}`);
+    }
+    if (b.length > n) lines.push(`… (${b.length - n} more bytes)`);
+    return lines.join("\n");
+  }
+
+  function renderStreams(){
+    streamsSelect.innerHTML = `<option value="">(select a stream)</option>`;
+    streamPreview.textContent = "(no stream selected)";
+    streamMeta.style.display = "none";
+
+    if (state.kind !== "msg"){
+      streamsSummary.textContent = "N/A";
+      streamsNote.textContent = "Streams are only available for .msg files.";
+      return;
+    }
+
+    const entries = Array.from(state.msg.streams.entries())
+      .map(([path, bytes]) => ({ path, bytes, size: bytes ? bytes.length : 0 }))
+      .sort((a,b)=>a.path.localeCompare(b.path));
+
+    if (!entries.length){
+      streamsSummary.textContent = "None (collapsed)";
+      streamsNote.textContent = "No streams found.";
+      return;
+    }
+
+    streamsSummary.textContent = `${entries.length} found (collapsed)`;
+    streamsNote.textContent = "Select a stream to view a safe local preview (hex + best-effort string decode).";
+
+    for (const e of entries){
+      const opt = document.createElement("option");
+      opt.value = e.path;
+      opt.textContent = `${e.path} (${fmtBytes(e.size)})`;
+      streamsSelect.appendChild(opt);
+    }
+  }
+
+  function onStreamSelected(path){
+    if (!path){
+      streamPreview.textContent = "(no stream selected)";
+      streamMeta.style.display = "none";
+      return;
+    }
+
+    const bytes = state.msg.streams.get(path) || new Uint8Array();
+    const size = bytes.length;
+    const typeGuess = streamTypeFromName(path) || (path.includes("__properties_version1.0") ? "Binary" : "—");
+    const meaning = guessMsgStreamMeaning(path) || "—";
+
+    smPath.textContent = path;
+    smSize.textContent = `${fmtBytes(size)} (${size} bytes)`;
+    smType.textContent = typeGuess;
+    smMeaning.textContent = meaning;
+    streamMeta.style.display = "grid";
+
+    // Best-effort decode if it looks like a string substg type
+    let decodedNote = "";
+    const m = String(path||"").match(/__substg1\.0_[0-9A-Fa-f]{4}([0-9A-Fa-f]{4})/);
+    if (m){
+      const t = m[1].toUpperCase();
+      if (t === "001F"){
+        const s = decodeMsgString(bytes, "001F");
+        decodedNote = `\n\n[Decoded as UTF-16LE string]\n${s}`;
+      } else if (t === "001E"){
+        const s = decodeMsgString(bytes, "001E");
+        decodedNote = `\n\n[Decoded as ANSI string]\n${s}`;
+      }
+    }
+
+    streamPreview.textContent =
+      `Stream: ${path}\nSize: ${size} bytes\nType: ${typeGuess}\nLikely meaning: ${meaning}\n\n[Hex preview]\n${hexPreview(bytes)}${decodedNote}`;
+  }
+
+  function setMainFields(){
+    fileNameEl.textContent = state.file ? state.file.name : "—";
+    fileTypeEl.textContent = state.kind ? state.kind.toUpperCase() : "—";
+    fileSizeEl.textContent = state.file ? fmtBytes(state.file.size) : "—";
+
+    if (state.kind==="msg"){
+      subjectEl.textContent = state.msg.subject || "—";
+      fromEl.textContent    = state.msg.from || "—";
+      toEl.textContent      = state.msg.to || "—";
+      dateEl.textContent    = state.msg.date || "—";
+    } else if (state.kind==="eml"){
+      subjectEl.textContent = state.eml.subject || "—";
+      fromEl.textContent    = state.eml.from || "—";
+      toEl.textContent      = state.eml.to || "—";
+      dateEl.textContent    = state.eml.date || "—";
+    } else {
+      subjectEl.textContent = fromEl.textContent = toEl.textContent = dateEl.textContent = "—";
+    }
+  }
+
+  function renderAll(){
+    setMainFields();
+
+    const hdrRaw = (state.kind==="msg") ? state.msg.headers : state.eml.headersRaw;
+    headersPre.innerHTML = hdrRaw ? renderHeadersSyntax(hdrRaw) : "(no headers)";
+
+    const combined = (state.kind==="msg")
+      ? (state.msg.headers||"") + "\n" + (state.msg.bodyHtml||"") + "\n" + (state.msg.bodyText||"")
+      : (state.eml.headersRaw||"") + "\n" + (state.eml.bodyHtml||"") + "\n" + (state.eml.bodyText||"");
+    updateLinksPanel(extractUrls(combined));
+
+    autoSelectBodyMode();
+    setBodyViews();
+
+    renderRecipients();
+    renderAttachments();
+    renderStreams(); 
+    applyHeaderSearch();
+    updateTriage();
+
+    setStatus("Loaded", "ok");
+  }
+
+  function resetAll(){
+    state.file = null;
+    state.kind = null;
+    state.bodyMode = "html";
+    state.activeView = "safeRender";
+    state.renderLoaded = false;
+    state.lastSafeSrcdoc = "";
+    state.lastRenderSrcdoc = "";
+
+    modeHtml.classList.add("active");
+    modeText.classList.remove("active");
+    modeHtml.style.opacity = "1";
+    modeText.style.opacity = "1";
+
+    state.msg = { streams:new Map(), headers:"", subject:"", from:"", to:"", date:"", bodyText:"", bodyHtml:"", recipients:[], attachments:[] };
+    state.eml = { headersRaw:"", subject:"", from:"", to:"", date:"", bodyText:"", bodyHtml:"", attachments:[] };
+    state.urls = [];
+
+    fileNameEl.textContent = fileTypeEl.textContent = fileSizeEl.textContent = "—";
+    subjectEl.textContent = fromEl.textContent = toEl.textContent = dateEl.textContent = "—";
+    triageDomain.textContent = triageUrls.textContent = "—";
+
+    headersPre.textContent = "(no headers)";
+    bodySourcePre.textContent = "(no content)";
+    bodyHint.textContent = "—";
+
+    recipsTable.innerHTML = "";
+    recipsSummary.textContent = "—";
+    recipsNote.textContent = "—";
+    attachTable.innerHTML = "";
+    attachSummary.textContent = "Collapsed";
+    attachNote.textContent = "—";
+
+    streamsSelect.innerHTML = `<option value="">(select a stream)</option>`;
+    streamsSummary.textContent = "Collapsed";
+    streamsNote.textContent = "—";
+    streamPreview.textContent = "(no stream selected)";
+    streamMeta.style.display = "none";
+
+    updateLinksPanel([]);
+
+    clearBtn.disabled = true;
+    setStatus("No file loaded");
+
+    iframeSafe.srcdoc = `<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>`;
+    iframeRender.srcdoc = `<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>`;
+
+    setTab("safeRender");
+  }
+
+  async function loadFile(file){
+    resetAll();
+    state.file = file;
+    clearBtn.disabled = false;
+
+    const lower = file.name.toLowerCase();
+    const buf = await file.arrayBuffer();
+
+    if (lower.endsWith(".eml") || file.type === "message/rfc822"){
+      state.kind = "eml";
+      setStatus("Parsing EML…");
+      const text = decodeWithBomOrUtf8(u8(buf)).text;
+      const parsed = parseEmlFull(text);
+      state.eml.headersRaw = parsed.headersRaw || "";
+      state.eml.subject = parsed.subject || "";
+      state.eml.from = parsed.from || "";
+      state.eml.to = parsed.to || "";
+      state.eml.date = parsed.date || "";
+      state.eml.bodyHtml = parsed.bodyHtml || "";
+      state.eml.bodyText = parsed.bodyText || "";
+      state.eml.attachments = parsed.attachments || [];
+      renderAll();
+      return;
+    }
+
+    state.kind = "msg";
+    setStatus("Parsing MSG…");
+    try{
+      if (!window.CFB || !window.CFB.parse){
+        throw new Error("CFB library not loaded. Ensure ./cfb.min.js exists or CDN fallback is reachable.");
+      }
+      const bytes = new Uint8Array(buf);
+      const cfbObj = CFB.parse(bytes, { type: "array" });
+      state.msg.streams = readAllCfbStreams(cfbObj);
+      parseMsg();
+      renderAll();
+    } catch (e){
+      console.error(e);
+      setStatus("Failed to parse MSG", "bad");
+      bodyHint.textContent = "Error parsing .msg";
+      bodySourcePre.textContent = String(e && e.message ? e.message : e);
+    }
+  }
+
+  chooseBtn.addEventListener("click", () => fileInput.click());
+  dropZone.addEventListener("click", (e) => { if (!e.target.closest("button")) fileInput.click(); });
+  clearBtn.addEventListener("click", resetAll);
+
+  fileInput.addEventListener("change", async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (f) await loadFile(f);
+    fileInput.value = "";
+  });
+
+  ["dragenter","dragover"].forEach(ev => {
+    dropZone.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); dropZone.classList.add("dragover"); });
+  });
+  ["dragleave","drop"].forEach(ev => {
+    dropZone.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); dropZone.classList.remove("dragover"); });
+  });
+  dropZone.addEventListener("drop", async (e)=>{
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) await loadFile(f);
+  });
+
+  tabSafe.addEventListener("click", ()=>setTab("safeRender"));
+  tabRender.addEventListener("click", ()=>setTab("render"));
+  tabSource.addEventListener("click", ()=>setTab("source"));
+
+  modeHtml.addEventListener("click", ()=>{
+    const { hasHtml } = getBodyAvailability();
+    if (!hasHtml) return;
+    state.bodyMode = "html";
+    modeHtml.classList.add("active");
+    modeText.classList.remove("active");
+    setBodyViews();
+  });
+  modeText.addEventListener("click", ()=>{
+    const { hasText } = getBodyAvailability();
+    if (!hasText) return;
+    state.bodyMode = "text";
+    modeText.classList.add("active");
+    modeHtml.classList.remove("active");
+    setBodyViews();
+  });
+
+  hdrSearch.addEventListener("input", applyHeaderSearch);
+  hdrClear.addEventListener("click", ()=>{ hdrSearch.value=""; applyHeaderSearch(); });
+
+  streamsSelect.addEventListener("change", () => {
+    onStreamSelected(streamsSelect.value);
+  });
+
+  resetAll();
+})();
+</script>
+</body>
+</html>
