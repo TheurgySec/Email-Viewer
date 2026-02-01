@@ -129,6 +129,19 @@
       border-radius:12px;
       background:rgba(0,0,0,.18);
     }
+    select.select{
+      width:100%;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:#0b0f14;
+      color:#e6edf3;
+      font-size:12px;
+    }
+    select.select option{
+      background:#0b0f14;
+      color:#e6edf3;
+    }
     .stream-meta .k{font-size:12px}
     .stream-meta .v{font-size:12px}
   
@@ -273,7 +286,6 @@
 
           <div class="sep"></div>
 
-          <!-- UPDATED: MSG Streams now uses a dropdown + inline preview (no scrolling needed) -->
           <details id="streamsDetails">
             <summary>
               <span class="suml">MSG Streams</span>
@@ -287,6 +299,8 @@
                   <select id="streamsSelect" class="select" aria-label="Select a stream">
                     <option value="">(select a stream)</option>
                   </select>
+                
+                  <button class="btn" id="streamDownloadBtn" type="button" disabled>Download stream</button>
                 </div>
 
                 <div class="stream-meta" id="streamMeta" style="display:none">
@@ -418,7 +432,9 @@
   const streamPreview  = $("streamPreview");
 
   const streamsSelect = $("streamsSelect");
-  const streamMeta = $("streamMeta");
+  
+  const streamDownloadBtn = $("streamDownloadBtn");
+const streamMeta = $("streamMeta");
   const smPath = $("smPath");
   const smSize = $("smSize");
   const smType = $("smType");
@@ -1433,7 +1449,9 @@ function isRemoteUrl(url){
 
   function renderStreams(){
     streamsSelect.innerHTML = `<option value="">(select a stream)</option>`;
-    streamPreview.textContent = "(no stream selected)";
+    
+    if (streamDownloadBtn) streamDownloadBtn.disabled = true;
+streamPreview.textContent = "(no stream selected)";
     streamMeta.style.display = "none";
 
     if (state.kind !== "msg"){
@@ -1467,10 +1485,14 @@ function isRemoteUrl(url){
     if (!path){
       streamPreview.textContent = "(no stream selected)";
       streamMeta.style.display = "none";
-      return;
+      
+      if (streamDownloadBtn) streamDownloadBtn.disabled = true;
+return;
     }
 
-    const bytes = state.msg.streams.get(path) || new Uint8Array();
+    
+    if (streamDownloadBtn) streamDownloadBtn.disabled = false;
+const bytes = state.msg.streams.get(path) || new Uint8Array();
     const size = bytes.length;
     const typeGuess = streamTypeFromName(path) || (path.includes("__properties_version1.0") ? "Binary" : "—");
     const meaning = guessMsgStreamMeaning(path) || "—";
@@ -1728,7 +1750,20 @@ function isRemoteUrl(url){
     onStreamSelected(streamsSelect.value);
   });
 
-  resetAll();
+  // Download selected stream (raw bytes)
+  if (streamDownloadBtn){
+    streamDownloadBtn.addEventListener("click", () => {
+      const path = streamsSelect.value;
+      if (!path) return;
+      const bytes = state.msg.streams.get(path);
+      if (!bytes) return;
+
+      const safe = String(path).replace(/[\\/:*?"<>|]+/g, "_");
+      const name = safe ? `stream_${safe}.bin` : "stream.bin";
+      downloadBytes(name, bytes, "application/octet-stream");
+    });
+  }
+resetAll();
 })();
 </script>
 </body>
