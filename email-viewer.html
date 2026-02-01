@@ -131,6 +131,20 @@
     }
     .stream-meta .k{font-size:12px}
     .stream-meta .v{font-size:12px}
+  
+    .errorbox{
+      margin-top:10px;
+      border:1px solid rgba(255,107,107,.55);
+      background:rgba(255,107,107,.10);
+      border-radius:12px;
+      padding:10px 12px;
+      font-size:12px;
+      color:var(--text);
+      display:none;
+    }
+    .errorbox .ttl{font-weight:650;margin-bottom:6px}
+    .risk{white-space:nowrap}
+
   </style>
 
   <!-- Local-first, CDN-fallback loader for cfb -->
@@ -174,7 +188,13 @@
           </div>
           <input id="fileInput" type="file" accept=".msg,.eml,message/rfc822" />
 
-          <div class="sep"></div>
+          
+
+          <div class="errorbox" id="errorBox" role="alert" aria-live="polite">
+            <div class="ttl">Problem parsing file</div>
+            <div id="errorText">—</div>
+          </div>
+<div class="sep"></div>
 
           <div class="kv">
             <div class="k">File</div><div class="v" id="fileName">—</div>
@@ -198,8 +218,16 @@
           </div>
           <div class="score">
             <div class="item">
-              <div class="lbl">Sender domain vs URLs</div>
-              <div class="val" id="triageDomain">—</div>
+              <div class="lbl">Authentication results</div>
+              <div class="val" id="triageAuth">—</div>
+            </div>
+            <div class="item">
+              <div class="lbl">Reply-To mismatch</div>
+              <div class="val" id="triageReplyTo">—</div>
+            </div>
+            <div class="item">
+              <div class="lbl">Link text vs target</div>
+              <div class="val" id="triageLinkMismatch">—</div>
             </div>
             <div class="item">
               <div class="lbl">Suspicious URL patterns</div>
@@ -236,7 +264,7 @@
               <div class="small" id="attachNote">—</div>
               <div style="margin-top:10px;overflow:auto">
                 <table>
-                  <thead><tr><th>Filename</th><th>Size</th><th>Download</th></tr></thead>
+                  <thead><tr><th>Filename</th><th>Size</th><th>Risk</th><th>Download</th></tr></thead>
                   <tbody id="attachTable"></tbody>
                 </table>
               </div>
@@ -317,6 +345,7 @@
                 <input id="hdrSearch" type="text" placeholder="Search headers…"
                   style="flex:1;min-width:220px;background:rgba(255,255,255,.03);border:1px solid var(--line);
                          border-radius:12px;padding:8px 10px;color:var(--text);font-size:12px" />
+                <button class="btn" id="hdrCopy" type="button">Copy</button>
                 <button class="btn" id="hdrClear" type="button">Clear</button>
               </div>
               <pre id="headersPre">(no headers)</pre>
@@ -368,6 +397,10 @@
   const headersPre     = $("headersPre");
   const hdrSearch = $("hdrSearch");
   const hdrClear  = $("hdrClear");
+  const hdrCopy  = $("hdrCopy");
+
+  const errorBox  = $("errorBox");
+  const errorText = $("errorText");
 
   const linksSummary = $("linksSummary");
   const linksPre = $("linksPre");
@@ -391,7 +424,9 @@
   const smType = $("smType");
   const smMeaning = $("smMeaning");
 
-  const triageDomain = $("triageDomain");
+  const triageAuth = $("triageAuth");
+  const triageReplyTo = $("triageReplyTo");
+  const triageLinkMismatch = $("triageLinkMismatch");
   const triageUrls   = $("triageUrls");
 
   const tabSafe   = $("tabSafe");
@@ -427,6 +462,8 @@
       date: "",
       bodyText: "",
       bodyHtml: "",
+      bodyRtf: "",
+      bodyTextHint: "",
       recipients: [],
       attachments: []
     },
@@ -440,7 +477,8 @@
       bodyHtml: "",
       attachments: []
     },
-    urls: []
+    urls: [],
+    linkMismatches: []
   };
 
   const fmtBytes = (n) => {
@@ -462,13 +500,27 @@
                                    "rgba(255,255,255,.03)";
   };
 
+  const clearError = () => {
+    if (!errorBox) return;
+    errorBox.style.display = "none";
+    if (errorText) errorText.textContent = "—";
+  };
+
+  const setError = (msg) => {
+    if (!errorBox) return;
+    errorBox.style.display = "block";
+    if (errorText) errorText.textContent = String(msg || "Unknown error");
+  };
+
   const u8 = (ab) => new Uint8Array(ab);
 
   function escapeHtml(s){
     return String(s)
-      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-      .replaceAll('"',"quot;").replaceAll("'","&#039;")
-      .replaceAll("quot;","&quot;");
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
   }
 
   function decodeWithBomOrUtf8(bytes){
@@ -497,7 +549,7 @@
   }
 
   function decodeHtmlBytes(bytes){
-    if (!bytes || bytes.length===0) return { html:"", note:"" };
+    if (!bytes || bytes.length===0) return { html:"", note:"", text:"" };
     let d = decodeWithBomOrUtf8(bytes);
     let html = d.text;
 
@@ -505,13 +557,17 @@
     if (meta && !/^utf-?8$/i.test(meta)){
       try { html = new TextDecoder(meta).decode(bytes); } catch {}
     }
-    if (!/<[a-z][\s>]/i.test(html) || html.trim().length < 40) {
-      return { html:"", note:"html: absent/unusable" };
+
+    // Some .msg files store "HTML" as plain text in PR_HTML (no tags).
+    // Treat that case as a text fallback rather than unsafe-ish HTML.
+    if (!/<[a-z][\s>]/i.test(html)){
+      return { html:"", note:"html: non-markup (treated as text)", text: html };
     }
-    return { html, note:`html: decoded (${d.encoding}${meta?`, meta:${meta}`:""})` };
+
+    return { html, note:`html: decoded (${d.encoding}${meta?`, meta:${meta}`:""})`, text:"" };
   }
 
-  function isRemoteUrl(url){
+function isRemoteUrl(url){
     const u = String(url||"").trim();
     if (!u) return false;
     if (u.startsWith("#") || u.startsWith("data:") || u.startsWith("blob:") || u.startsWith("cid:")) return false;
@@ -683,7 +739,7 @@
         if (state.msg.bodyHtml) return { html: state.msg.bodyHtml, sourceText: state.msg.bodyHtml, hint: "Body: HTML (PR_HTML / 0x1013)" };
         return { html: "<div>No HTML body found.</div>", sourceText: "", hint: "Body: HTML (missing)" };
       } else {
-        if (state.msg.bodyText) return { html: `<pre>${escapeHtml(state.msg.bodyText)}</pre>`, sourceText: state.msg.bodyText, hint: "Body: Text (PR_BODY / 0x1000)" };
+        if (state.msg.bodyText) return { html: `<pre>${escapeHtml(state.msg.bodyText)}</pre>`, sourceText: state.msg.bodyText, hint: (state.msg.bodyTextHint || "Body: Text") };
         return { html: "<div>No text body found.</div>", sourceText: "", hint: "Body: Text (missing)" };
       }
     }
@@ -769,23 +825,135 @@
     return m ? m[1].toLowerCase() : "";
   }
 
-  function updateTriage(){
-    const senderDomain = domainOfEmail(fromEl.textContent || "");
-    const hosts = state.urls.map(hostOf).filter(Boolean);
-    const uniqueHosts = Array.from(new Set(hosts));
-    if (!senderDomain && uniqueHosts.length===0){
-      triageDomain.textContent = "—";
-    } else if (uniqueHosts.length===0){
-      triageDomain.innerHTML = `<span class="badge good">No URLs found</span>`;
-    } else if (!senderDomain){
-      triageDomain.innerHTML = `<span class="badge warn">No sender domain</span> URLs: <code>${escapeHtml(uniqueHosts.slice(0,4).join(", "))}${uniqueHosts.length>4?"…":""}</code>`;
-    } else {
-      const mismatches = uniqueHosts.filter(h => h!==senderDomain && !h.endsWith("."+senderDomain));
-      if (mismatches.length){
-        triageDomain.innerHTML = `<span class="badge bad">Mismatch</span> Sender: <code>${escapeHtml(senderDomain)}</code> • URLs: <code>${escapeHtml(mismatches.slice(0,4).join(", "))}${mismatches.length>4?"…":""}</code>`;
-      } else {
-        triageDomain.innerHTML = `<span class="badge good">Aligned</span> Sender matches URL domains`;
+  function getHeaderFirst(raw, name){
+    const want = String(name||"").toLowerCase();
+    const text = String(raw||"").replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+    const lines = text.split("\n");
+    const unfolded = [];
+    for (const line of lines){
+      if (/^[ \t]/.test(line) && unfolded.length) unfolded[unfolded.length-1] += "\n" + line;
+      else unfolded.push(line);
+    }
+    for (const ln of unfolded){
+      const i = ln.indexOf(":");
+      if (i<=0) continue;
+      const k = ln.slice(0,i).trim().toLowerCase();
+      if (k !== want) continue;
+      return ln.slice(i+1).trim();
+    }
+    return "";
+  }
+
+  function badgeForResult(label, result){
+    const r = String(result||"").toLowerCase();
+    if (!r) return `<span class="badge">—</span>`;
+    if (r === "pass") return `<span class="badge good">${escapeHtml(label)}: pass</span>`;
+    if (r === "fail") return `<span class="badge bad">${escapeHtml(label)}: fail</span>`;
+    return `<span class="badge warn">${escapeHtml(label)}: ${escapeHtml(r)}</span>`;
+  }
+
+  function parseAuthResults(raw){
+    const text = String(raw||"");
+    const pick = (re) => {
+      const m = text.match(re);
+      return m ? m[1].toLowerCase() : "";
+    };
+    let spf = pick(/\bspf\s*=\s*(pass|fail|softfail|neutral|none|temperror|permerror)\b/i);
+    let dkim = pick(/\bdkim\s*=\s*(pass|fail|neutral|none|temperror|permerror)\b/i);
+    let dmarc = pick(/\bdmarc\s*=\s*(pass|fail|bestguesspass|none|temperror|permerror)\b/i);
+
+    // Fallback: Received-SPF header often carries a result even when Authentication-Results is absent
+    if (!spf){
+      const rs = getHeaderFirst(raw, "received-spf");
+      const m = rs.match(/\b(pass|fail|softfail|neutral|none|temperror|permerror)\b/i);
+      if (m) spf = m[1].toLowerCase();
+    }
+    return { spf, dkim, dmarc };
+  }
+
+  function extractHostnameFromText(t){
+    const s = String(t||"").trim();
+    if (!s) return "";
+    // Try full URL first
+    try{
+      const u = new URL(s);
+      return u.host.toLowerCase();
+    } catch {}
+    // Try to find a host-like token in the text
+    const m = s.match(/\b([a-z0-9.-]+\.[a-z]{2,})(?::\d{2,5})?\b/i);
+    return m ? m[1].toLowerCase() : "";
+  }
+
+  function extractLinkMismatches(html){
+    const mismatches = [];
+    const src = String(html||"");
+    if (!src.trim()) return mismatches;
+
+    let doc;
+    try{
+      doc = document.implementation.createHTMLDocument("x");
+      doc.documentElement.innerHTML = src;
+    } catch {
+      return mismatches;
+    }
+
+    const anchors = Array.from(doc.querySelectorAll("a[href]"));
+    for (const a of anchors){
+      const href = (a.getAttribute("href") || "").trim();
+      if (!href) continue;
+      if (href.startsWith("mailto:") || href.startsWith("tel:") || href.startsWith("#")) continue;
+
+      let hrefHost = "";
+      try { hrefHost = new URL(href, "http://example.invalid").host.toLowerCase(); } catch { hrefHost = ""; }
+
+      const textHost = extractHostnameFromText(a.textContent);
+      if (!textHost || !hrefHost) continue;
+
+      // Consider subdomain alignment OK (e.g. text says example.com, href is login.example.com)
+      const aligned = hrefHost === textHost || hrefHost.endsWith("." + textHost) || textHost.endsWith("." + hrefHost);
+      if (!aligned){
+        mismatches.push({ displayed: textHost, target: hrefHost, href });
       }
+    }
+    return mismatches;
+  }
+
+  function updateTriage(){
+    const rawHeaders = state.kind==="msg" ? state.msg.headers : state.kind==="eml" ? state.eml.headersRaw : "";
+    const { spf, dkim, dmarc } = parseAuthResults(rawHeaders);
+
+    if (!spf && !dkim && !dmarc){
+      triageAuth.innerHTML = `<span class="badge warn">No auth results found</span>`;
+    } else {
+      const parts = [];
+      if (spf) parts.push(badgeForResult("SPF", spf));
+      if (dkim) parts.push(badgeForResult("DKIM", dkim));
+      if (dmarc) parts.push(badgeForResult("DMARC", dmarc));
+      triageAuth.innerHTML = parts.join(" ");
+    }
+
+    const fromHeader = getHeaderFirst(rawHeaders, "from") || (fromEl.textContent || "");
+    const replyTo = getHeaderFirst(rawHeaders, "reply-to");
+    const fromDomain = domainOfEmail(fromHeader);
+    const replyDomain = domainOfEmail(replyTo);
+
+    if (!replyTo){
+      triageReplyTo.innerHTML = `<span class="badge good">None</span>`;
+    } else if (!fromDomain || !replyDomain){
+      triageReplyTo.innerHTML = `<span class="badge warn">Review</span> Reply-To: <code>${escapeHtml(replyTo)}</code>`;
+    } else if (replyDomain === fromDomain || replyDomain.endsWith("."+fromDomain)){
+      triageReplyTo.innerHTML = `<span class="badge good">Aligned</span> <code>${escapeHtml(replyDomain)}</code>`;
+    } else {
+      triageReplyTo.innerHTML = `<span class="badge bad">Mismatch</span> From: <code>${escapeHtml(fromDomain)}</code> • Reply-To: <code>${escapeHtml(replyDomain)}</code>`;
+    }
+
+    const bodyHtml = state.kind==="msg" ? state.msg.bodyHtml : state.kind==="eml" ? state.eml.bodyHtml : "";
+    state.linkMismatches = extractLinkMismatches(bodyHtml);
+    if (!state.linkMismatches.length){
+      triageLinkMismatch.innerHTML = `<span class="badge good">None detected</span>`;
+    } else {
+      const top = state.linkMismatches.slice(0,3).map(x => `${escapeHtml(x.displayed)} → ${escapeHtml(x.target)}`).join("; ");
+      triageLinkMismatch.innerHTML = `<span class="badge warn">Review</span> ${escapeHtml(state.linkMismatches.length)} mismatch(es): <code>${top}${state.linkMismatches.length>3?"…":""}</code>`;
     }
 
     const flags = [];
@@ -1060,22 +1228,33 @@
     state.msg.date = decodeMsgString(getSubstg("0E06","001F"), "001F") ||
                      decodeMsgString(getSubstg("0039","001F"), "001F") || "";
 
-    state.msg.bodyText = decodeMsgString(getSubstg("1000","001F"), "001F") || "";
+    state.msg.bodyText = decodeMsgString(getSubstg("1000","001F"), "001F") || decodeMsgString(getSubstg("1000","001E"), "001E") || "";
+    if (state.msg.bodyText) state.msg.bodyTextHint = "Body: Text (PR_BODY / 0x1000)";
     const htmlBytes = getSubstg("1013","0102");
-    state.msg.bodyHtml = decodeHtmlBytes(htmlBytes).html || "";
+    const htmlInfo = decodeHtmlBytes(htmlBytes);
+    state.msg.bodyHtml = htmlInfo.html || "";
+    if (!state.msg.bodyText && htmlInfo.text){
+      state.msg.bodyText = htmlInfo.text;
+      state.msg.bodyTextHint = "Body: Text (from PR_HTML / 0x1013)";
+    }
 
     if (!state.msg.bodyText && !state.msg.bodyHtml){
       for (const k of state.msg.streams.keys()){
         if (/__substg1\.0_10130102$/i.test(k)){
-          state.msg.bodyHtml = decodeHtmlBytes(state.msg.streams.get(k)).html || "";
+          const info = decodeHtmlBytes(state.msg.streams.get(k));
+          state.msg.bodyHtml = info.html || "";
+          if (!state.msg.bodyText && info.text){
+            state.msg.bodyText = info.text;
+            state.msg.bodyTextHint = "Body: Text (from PR_HTML / 0x1013)";
+          }
         }
         if (/__substg1\.0_1000001F$/i.test(k)){
           state.msg.bodyText = decodeMsgString(state.msg.streams.get(k),"001F") || "";
+          if (state.msg.bodyText && !state.msg.bodyTextHint) state.msg.bodyTextHint = "Body: Text (PR_BODY / 0x1000)";
         }
       }
     }
-
-    const recipStorages = new Set();
+        const recipStorages = new Set();
     for (const k of state.msg.streams.keys()){
       const m = k.match(/^(__recip_version1\.0_#[0-9A-Fa-f]{8})\//);
       if (m) recipStorages.add(m[1]);
@@ -1132,21 +1311,45 @@
     }
     attachSummary.textContent = `${atts.length} found (collapsed)`;
     attachNote.textContent = "Download any attachment (including inline images).";
+
+    const isExecLike = (name) => {
+      const n = String(name||"").toLowerCase().trim();
+      // Common risky types in mail triage
+      const riskyExt = [".exe",".dll",".scr",".com",".bat",".cmd",".ps1",".vbs",".js",".jse",".wsf",".wsh",".hta",".msi",".reg",".lnk",".iso",".img",".jar",".scf"];
+      return riskyExt.some(ext => n.endsWith(ext));
+    };
+
+    const hasDoubleExt = (name) => {
+      const n = String(name||"").toLowerCase();
+      // e.g. invoice.pdf.exe / photo.jpg.js
+      return /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|rtf|txt|jpg|jpeg|png|gif|zip)\.[a-z0-9]{2,5}$/.test(n);
+    };
+
     for (const a of atts){
       const tr = document.createElement("tr");
+
+      const filename = a.filename || "";
+      const bytes = a.bytes || a.data;
+      const size = bytes ? bytes.length : 0;
+
+      const risky = isExecLike(filename) || hasDoubleExt(filename);
+      const riskHtml = risky
+        ? `<span class="badge warn risk">Review</span>`
+        : `<span class="badge good risk">Low</span>`;
+
       const btn = document.createElement("button");
       btn.className = "btn";
       btn.type = "button";
       btn.textContent = "Download";
-      btn.disabled = !a.bytes && !a.data;
+      btn.disabled = !bytes;
       btn.addEventListener("click", () => {
-        const bytes = a.bytes || a.data;
         if (!bytes) return;
-        downloadBytes(a.filename || "attachment.bin", bytes, a.mime || "application/octet-stream");
+        downloadBytes(filename || "attachment.bin", bytes, a.mime || "application/octet-stream");
       });
+
+      tr.innerHTML = `<td>${escapeHtml(filename)}</td><td>${escapeHtml(fmtBytes(size))}</td><td>${riskHtml}</td>`;
       const tdBtn = document.createElement("td");
       tdBtn.appendChild(btn);
-      tr.innerHTML = `<td>${escapeHtml(a.filename||"")}</td><td>${escapeHtml(fmtBytes((a.bytes||a.data||[]).length||0))}</td>`;
       tr.appendChild(tdBtn);
       attachTable.appendChild(tr);
     }
@@ -1293,7 +1496,7 @@
     }
 
     streamPreview.textContent =
-      `Stream: ${path}\nSize: ${size} bytes\nType: ${typeGuess}\nLikely meaning: ${meaning}\n\n[Hex preview]\n${hexPreview(bytes)}${decodedNote}`;
+      `Stream: ${path}\nSize: ${size} bytes\nType: ${typeGuess}\nLikely meaning: ${meaning}\n\n[Hex preview – first 512 bytes]\n${hexPreview(bytes)}${decodedNote}`;
   }
 
   function setMainFields(){
@@ -1317,6 +1520,7 @@
   }
 
   function renderAll(){
+    clearError();
     setMainFields();
 
     const hdrRaw = (state.kind==="msg") ? state.msg.headers : state.eml.headersRaw;
@@ -1340,6 +1544,7 @@
   }
 
   function resetAll(){
+    clearError();
     state.file = null;
     state.kind = null;
     state.bodyMode = "html";
@@ -1353,13 +1558,14 @@
     modeHtml.style.opacity = "1";
     modeText.style.opacity = "1";
 
-    state.msg = { streams:new Map(), headers:"", subject:"", from:"", to:"", date:"", bodyText:"", bodyHtml:"", recipients:[], attachments:[] };
+    state.msg = { streams:new Map(), headers:"", subject:"", from:"", to:"", date:"", bodyText:"", bodyHtml:"", bodyRtf:"", bodyTextHint:"", recipients:[], attachments:[] };
     state.eml = { headersRaw:"", subject:"", from:"", to:"", date:"", bodyText:"", bodyHtml:"", attachments:[] };
     state.urls = [];
+    state.linkMismatches = [];
 
     fileNameEl.textContent = fileTypeEl.textContent = fileSizeEl.textContent = "—";
     subjectEl.textContent = fromEl.textContent = toEl.textContent = dateEl.textContent = "—";
-    triageDomain.textContent = triageUrls.textContent = "—";
+    triageAuth.textContent = triageReplyTo.textContent = triageLinkMismatch.textContent = triageUrls.textContent = "—";
 
     headersPre.textContent = "(no headers)";
     bodySourcePre.textContent = "(no content)";
@@ -1400,6 +1606,7 @@
     if (lower.endsWith(".eml") || file.type === "message/rfc822"){
       state.kind = "eml";
       setStatus("Parsing EML…");
+      try{
       const text = decodeWithBomOrUtf8(u8(buf)).text;
       const parsed = parseEmlFull(text);
       state.eml.headersRaw = parsed.headersRaw || "";
@@ -1410,6 +1617,14 @@
       state.eml.bodyHtml = parsed.bodyHtml || "";
       state.eml.bodyText = parsed.bodyText || "";
       state.eml.attachments = parsed.attachments || [];
+      } catch (e){
+        console.error(e);
+        setStatus("Failed to parse EML", "bad");
+        setError(e && e.message ? e.message : e);
+        bodyHint.textContent = "Error parsing .eml";
+        bodySourcePre.textContent = String(e && e.message ? e.message : e);
+        return;
+      }
       renderAll();
       return;
     }
@@ -1428,6 +1643,7 @@
     } catch (e){
       console.error(e);
       setStatus("Failed to parse MSG", "bad");
+      setError(e && e.message ? e.message : e);
       bodyHint.textContent = "Error parsing .msg";
       bodySourcePre.textContent = String(e && e.message ? e.message : e);
     }
@@ -1477,6 +1693,36 @@
 
   hdrSearch.addEventListener("input", applyHeaderSearch);
   hdrClear.addEventListener("click", ()=>{ hdrSearch.value=""; applyHeaderSearch(); });
+
+  const copyToClipboard = async (txt) => {
+    const s = String(txt || "");
+    try{
+      await navigator.clipboard.writeText(s);
+      setStatus("Headers copied", "ok");
+      setTimeout(()=>{ if (state.file) setStatus("Loaded","ok"); }, 900);
+      return;
+    } catch {}
+    // Fallback
+    const ta = document.createElement("textarea");
+    ta.value = s;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try{
+      document.execCommand("copy");
+      setStatus("Headers copied", "ok");
+      setTimeout(()=>{ if (state.file) setStatus("Loaded","ok"); }, 900);
+    } finally {
+      ta.remove();
+    }
+  };
+
+  hdrCopy.addEventListener("click", async ()=>{
+    const raw = state.kind==="eml" ? state.eml.headersRaw : state.msg.headers;
+    await copyToClipboard(raw || "");
+  });
 
   streamsSelect.addEventListener("change", () => {
     onStreamSelected(streamsSelect.value);
